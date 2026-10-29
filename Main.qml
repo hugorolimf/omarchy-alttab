@@ -110,9 +110,25 @@ Item {
     return Quickshell.iconPath("application-x-executable", true)
   }
 
+  FileView {
+    id: listReader
+    blockLoading: true
+    printErrors: false
+  }
+
   IpcHandler {
     target: "io.github.hugorolimf.alttab"
     function show(payload: string): string { return root.show(payload) }
+    // The list in a private file (alttab.lua writes it under
+    // $XDG_RUNTIME_DIR/glass-alttab), so titles never sit in a command line.
+    function showFile(path: string): string {
+      var p = String(path || "")
+      if (p !== Quickshell.env("XDG_RUNTIME_DIR") + "/glass-alttab/list.json") return "bad path"
+      listReader.path = p
+      var text = listReader.text()
+      listReader.path = ""
+      return root.show(text)
+    }
     function select(s: int, q: int, i: int): string { return root.select(s, q, i) }
     function hide(s: int): string { return root.hide(s) }
     function state(): string { return root.active ? "shown " + root.session + " " + root.current + "/" + root.entries.length : "hidden" }

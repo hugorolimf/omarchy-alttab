@@ -41,6 +41,27 @@ local function shell(method, args)
   hl.exec_cmd("omarchy-shell -q io.github.hugorolimf.alttab " .. method .. " " .. args)
 end
 
+-- The window list (titles can be private) never goes in a command line,
+-- which other accounts can read: it is written to a file in a 0700 folder
+-- under $XDG_RUNTIME_DIR and only that path is handed to the shell. Without
+-- a runtime dir there is no private place for it, so the panel stays off and
+-- Alt+Tab still switches.
+local RUNTIME = os.getenv("XDG_RUNTIME_DIR")
+local LIST_DIR = RUNTIME and RUNTIME ~= "" and (RUNTIME .. "/glass-alttab") or nil
+local LIST_FILE = LIST_DIR and (LIST_DIR .. "/list.json") or nil
+local function quote(path) return "'" .. path:gsub("'", "'\\''") .. "'" end
+if LIST_DIR then os.execute("mkdir -p -m 700 " .. quote(LIST_DIR) .. " && chmod 700 " .. quote(LIST_DIR)) end
+
+local function write_list(json)
+  if not LIST_FILE then return false end
+  local tmp = LIST_FILE .. ".tmp"
+  local f = io.open(tmp, "w")
+  if not f then return false end
+  f:write(json)
+  f:close()
+  return os.rename(tmp, LIST_FILE) ~= nil
+end
+
 -- Windows to offer, most recently used first: the active one, the one before
 -- it (what a quick Alt+Tab goes to), then the rest with this monitor's first.
 -- Other special workspaces (scratchpad) stay out; minimized windows are in.
@@ -167,7 +188,7 @@ local function step(dir)
     state.show_timer = hl.timer(function()
       if state.active and state.session == session and not state.shown then
         state.shown = true
-        shell("show", o.shell_quote(payload(monitor_name)))
+        if write_list(payload(monitor_name)) then shell("showFile", o.shell_quote(LIST_FILE)) end
       end
     end, { timeout = SHOW_DELAY, type = "oneshot" })
     -- Letting go of Alt, checked every frame: the Alt_L/Alt_R release binds
