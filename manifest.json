@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.hugorolimf.alttab",
+  "name": "Glass Alt+Tab",
+  "author": "Hugo Rolim Filho",
+  "license": "MIT",
+  "homepage": "https://github.com/hugorolimf/omarchy-alttab",
+  "description": "Windows-style Alt+Tab for Omarchy with live window thumbnails on a Liquid Glass panel. Quick Alt+Tab flips instantly; hold Alt to pick from every window, minimized ones included",
+  "kinds": [
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Main.qml"
+  },
+  "version": "1.0.0"
+}
