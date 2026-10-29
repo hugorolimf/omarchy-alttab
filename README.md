@@ -50,6 +50,10 @@ every Hyprland reload. It only runs the plugin's `alttab.lua` if that file still
 exists, so removing the plugin can never break your config. Your own
 `hyprland.lua` and bindings files are not edited.
 
+While the panel is up, the window list (titles included) goes from Hyprland to
+the panel through `$XDG_RUNTIME_DIR/glass-alttab/list.json`, in a folder only you
+can read (0700). Titles never go in a command line.
+
 It replaces Omarchy's `ALT + TAB` and `ALT + SHIFT + TAB` bindings while loaded.
 
 ## Requirements
