@@ -247,6 +247,7 @@ Item {
                 border.color: Qt.rgba(Commons.Color.menu.text.r, Commons.Color.menu.text.g, Commons.Color.menu.text.b, 0.3)
                 Text {
                   id: minLabel
+                  textFormat: Text.PlainText
                   anchors.centerIn: parent
                   text: Qt.locale().name.indexOf("pt") === 0 ? "minimizada" : "minimized"
                   color: Commons.Color.menu.text
@@ -269,6 +270,7 @@ Item {
                   asynchronous: true
                 }
                 Text {
+                  textFormat: Text.PlainText
                   anchors.verticalCenter: parent.verticalCenter
                   width: Math.min(implicitWidth, tile.width - 16 - appIcon.width - 6)
                   text: tile.title || tile.modelData.appId
