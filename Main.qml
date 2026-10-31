@@ -145,9 +145,10 @@ Item {
       id: win
       required property var modelData
       screen: modelData
-      readonly property var monitor: Hyprland.monitorFor(modelData)
-      visible: !!monitor
-      readonly property bool shown: root.active && !!monitor && monitor.name === root.monitorName
+      // Match on the screen's own output name: Hyprland.monitorFor() is read
+      // once and is still null for a screen that reappears (e.g. the laptop
+      // panel after undocking), which left that screen without an overlay.
+      readonly property bool shown: root.active && modelData.name === root.monitorName
       anchors { top: true; bottom: true; left: true; right: true }
       color: "transparent"
       WlrLayershell.namespace: "hugorolimf-alttab"
