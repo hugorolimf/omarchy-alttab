@@ -10,7 +10,7 @@ import qs.Commons as Commons
 // windows, follows Tab / Shift+Tab, focuses the pick when Alt comes up and
 // does a quick Alt+Tab without ever talking to the shell. This plugin only
 // draws the panel, which the Lua side summons after a short hold:
-//   omarchy-shell io.github.hugorolimf.alttab show '<json>'   {s, q, i, mon, w: [{a, c, t, m}]}
+//   omarchy-shell io.github.hugorolimf.alttab show '<json>'   {s, q, i, mon, cur, w: [{a, c, t, m, ws, wn}]}
 //   omarchy-shell io.github.hugorolimf.alttab select <s> <q> <i>
 //   omarchy-shell io.github.hugorolimf.alttab hide <s>
 // Every call runs in its own process, so they can arrive out of order: s is
@@ -49,6 +49,8 @@ Item {
   property string monitorName: ""
   property int current: 0
   property var entries: []
+  // The workspace on screen when the switch began.
+  property int currentWs: 0
 
   function show(payload) {
     var p
@@ -61,8 +63,10 @@ Item {
     session = p.s
     seq = q
     monitorName = p.mon || ""
+    currentWs = p.cur || 0
     entries = (p.w || []).map(function(w) {
-      return { address: String(w.a || "").replace(/^0x/, ""), appId: w.c || "", title: w.t || "", minimized: !!w.m }
+      return { address: String(w.a || "").replace(/^0x/, ""), appId: w.c || "", title: w.t || "", minimized: !!w.m,
+        ws: typeof w.ws === "number" ? w.ws : 0, wsName: String(w.wn || "") }
     })
     current = Math.max(0, Math.min(entries.length - 1, index))
     active = entries.length > 0
@@ -134,6 +138,39 @@ Item {
     function state(): string { return root.active ? "shown " + root.session + " " + root.current + "/" + root.entries.length : "hidden" }
   }
 
+  readonly property bool pt: Qt.locale().name.indexOf("pt") === 0
+  function tr(ptText, enText) { return pt ? ptText : enText }
+
+  // The look follows anatomy: grey hairlines, mono labels, colour only for a
+  // state, written out next to it. Greys come from the theme's menu colours.
+  readonly property color ink: Commons.Color.menu.text
+  readonly property color paper: Commons.Color.menu.background
+  function ink_(a) { return Qt.rgba(ink.r, ink.g, ink.b, a) }
+  readonly property string sans: "Adwaita Sans"
+  readonly property string mono: "JetBrainsMono Nerd Font"
+  readonly property color working: "#6b9bff"
+
+  // Claude Code puts a glyph in front of the session name in the window
+  // title: a spinning one while the model writes, a star otherwise (also
+  // while a tool runs, so the star says nothing for sure). The glyph goes;
+  // only "working" is written under the name.
+  function agentState(title) {
+    var m = /^([✳✻✽✶✢◐-◓⠀-⣿])\s+/.exec(String(title || ""))
+    if (!m) return ""
+    return "✳✻✽✶✢".indexOf(m[1]) >= 0 ? "idle" : "working"
+  }
+  function cleanTitle(title) {
+    var t = String(title || "")
+    return agentState(t) ? t.replace(/^\S+\s+/, "") : t
+  }
+  readonly property var terminals: ["foot", "kitty", "alacritty", "ghostty", "wezterm", "org.wezfurlong.wezterm", "xterm", "com.mitchellh.ghostty"]
+  function appLabel(appId) {
+    var id = String(appId || "")
+    if (terminals.indexOf(id.toLowerCase()) >= 0) return "Terminal"
+    var e = id ? (DesktopEntries.heuristicLookup(id) || DesktopEntries.byId(id)) : null
+    return e && e.name ? e.name : id
+  }
+
   // One full-screen overlay per screen; only the focused monitor's shows.
   // The surface never changes size (a resizing layer surface jumps) and
   // stays mapped, transparent and click-through while hidden, so showing the
@@ -157,21 +194,38 @@ Item {
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
       exclusionMode: ExclusionMode.Ignore
       mask: Region { item: win.shown ? plate : nothing }
+      // Liquid Glass (mask_mode "alpha_region") only works inside this box:
+      // the panel while it shows or fades out, nothing while hidden, so the
+      // full-screen surface costs no glass at rest. 2 px of slack keep the
+      // panel's antialiased edge (centered, often on a half pixel) inside it.
+      BackgroundEffect.blurRegion: Region {
+        readonly property bool on: win.shown || plate.opacity > 0
+        x: on ? plate.x - 2 : 0
+        y: on ? plate.y - 2 : 0
+        width: on ? plate.width + 4 : 0
+        height: on ? plate.height + 4 : 0
+      }
       Item { id: nothing; width: 0; height: 0 }
 
-      // Tiles shrink when many windows would not fit on the screen.
+      // Tiles shrink when many windows would not fit on the screen. A tile is
+      // the thumbnail (16:10) plus two lines of text under it, in rows by
+      // recent use (Tile.qml).
       readonly property int count: root.entries.length
       readonly property real maxWidth: width * 0.86
       readonly property real maxHeight: height * 0.8
-      readonly property int gap: 12
-      readonly property int pad: 18
+      readonly property int gap: 8
+      readonly property int pad: 14
+      readonly property int head: 30
+      readonly property int textBlock: 44
       readonly property var layout: {
-        var n = Math.max(1, count)
-        for (var w = 260; w >= 110; w -= 10) {
-          var h = Math.round(w * 0.62) + 34
-          var cols = Math.max(1, Math.min(n, Math.floor((maxWidth - pad * 2 + gap) / (w + gap))))
-          var rows = Math.ceil(n / cols)
-          if (rows * (h + gap) - gap + pad * 2 <= maxHeight || w === 110) return { w: w, h: h, cols: cols }
+        var room = maxWidth - pad * 2
+        for (var w = 260; w >= 120; w -= 10) {
+          var thumb = Math.round((w - 12) * 0.625)
+          var h = 6 + thumb + textBlock
+          var cols = Math.max(1, Math.min(count, Math.floor((room + gap) / (w + gap))))
+          var height = Math.ceil(count / cols) * (h + gap) - gap
+          if (height + pad * 2 + head <= maxHeight || w === 120)
+            return { w: w, h: h, thumb: thumb, cols: cols, width: cols * (w + gap) - gap, height: Math.max(0, height) }
         }
       }
 
@@ -179,131 +233,97 @@ Item {
         id: plate
         anchors.centerIn: parent
         width: grid.width + win.pad * 2
-        height: grid.height + win.pad * 2
-        radius: 22
-        color: Qt.rgba(Commons.Color.menu.background.r, Commons.Color.menu.background.g, Commons.Color.menu.background.b, 0.62)
+        height: win.head + grid.height + win.pad * 2
+        radius: 18
+        color: Qt.rgba(root.paper.r, root.paper.g, root.paper.b, 0.8)
         border.width: 1
-        border.color: Qt.rgba(Commons.Color.menu.text.r, Commons.Color.menu.text.g, Commons.Color.menu.text.b, 0.18)
+        border.color: root.ink_(0.12)
         opacity: win.shown ? 1 : 0
-        scale: win.shown ? 1 : 0.97
-        Behavior on opacity { NumberAnimation { duration: 70; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+        scale: win.shown ? 1 : 0.98
+        Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.32, 0.72, 0, 1, 1, 1] } }
+        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.32, 0.72, 0, 1, 1, 1] } }
 
-        Grid {
+        // Header: how many windows, and the keys that work while switching.
+        Text {
+          id: countLabel
+          x: win.pad + 6
+          y: win.pad - 2
+          height: 18
+          verticalAlignment: Text.AlignVCenter
+          textFormat: Text.PlainText
+          text: root.tr("JANELAS", "WINDOWS") + " · " + win.count
+          color: root.ink_(0.5)
+          font.family: root.mono
+          font.pixelSize: 10
+          font.letterSpacing: 0.9
+        }
+        Row {
+          id: hints
+          anchors { right: parent.right; rightMargin: win.pad + 6 }
+          y: win.pad - 2
+          height: 18
+          spacing: 12
+          visible: grid.width > countLabel.implicitWidth + implicitWidth + 40
+          Repeater {
+            model: [["TAB", root.tr("PRÓXIMA", "NEXT")], ["⇧ TAB", root.tr("ANTERIOR", "BACK")], ["ESC", root.tr("CANCELA", "CANCEL")]]
+            delegate: Row {
+              required property var modelData
+              spacing: 5
+              anchors.verticalCenter: parent.verticalCenter
+              Rectangle {
+                width: key.implicitWidth + 8
+                height: 15
+                radius: 4
+                color: "transparent"
+                border.width: 1
+                border.color: root.ink_(0.16)
+                Text {
+                  id: key
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: modelData[0]
+                  color: root.ink_(0.62)
+                  font.family: root.mono
+                  font.pixelSize: 9
+                }
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: modelData[1]
+                color: root.ink_(0.42)
+                font.family: root.mono
+                font.pixelSize: 10
+                font.letterSpacing: 0.8
+              }
+            }
+          }
+        }
+        Rectangle {
+          x: win.pad; y: win.pad + win.head - 12
+          width: parent.width - win.pad * 2; height: 1
+          color: root.ink_(0.07)
+        }
+
+        Item {
           id: grid
-          anchors.centerIn: parent
-          columns: win.layout.cols
-          spacing: win.gap
+          x: win.pad
+          y: win.pad + win.head - 4
+          width: win.layout.width
+          height: win.layout.height
 
           Repeater {
             // Thumbnails exist only while the panel is up: no capture otherwise.
-            model: win.shown ? root.entries : []
-            delegate: Item {
-              id: tile
-              required property var modelData
+            model: win.shown ? root.entries.length : 0
+            delegate: Tile {
               required property int index
-              readonly property var toplevel: root.toplevelFor(modelData.address)
-              readonly property bool selected: index === root.current
-              readonly property string title: toplevel && toplevel.title ? toplevel.title : modelData.title
+              app: root
+              gi: index
+              thumb: win.layout.thumb
+              x: (index % win.layout.cols) * (win.layout.w + win.gap)
+              y: Math.floor(index / win.layout.cols) * (win.layout.h + win.gap)
               width: win.layout.w
               height: win.layout.h
-
-              Rectangle {
-                anchors.fill: parent
-                radius: 14
-                color: tile.selected
-                  ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.28)
-                  : Qt.rgba(Commons.Color.menu.text.r, Commons.Color.menu.text.g, Commons.Color.menu.text.b, tileMouse.containsMouse ? 0.12 : 0)
-                border.width: tile.selected ? 2 : 0
-                border.color: Commons.Color.accent
-              }
-
-              // Thumbnail area: the live window, or its icon until a frame arrives.
-              Item {
-                id: shot
-                anchors { top: parent.top; left: parent.left; right: parent.right; margins: 8 }
-                height: parent.height - 34 - 8
-                opacity: tile.modelData.minimized ? 0.55 : 1
-
-                ScreencopyView {
-                  id: view
-                  readonly property real aspect: sourceSize.height > 0 ? sourceSize.width / sourceSize.height : 16 / 10
-                  anchors.centerIn: parent
-                  width: Math.min(parent.width, parent.height * aspect)
-                  height: Math.min(parent.height, parent.width / aspect)
-                  captureSource: tile.toplevel ? tile.toplevel.wayland : null
-                  live: true
-                  paintCursor: false
-                  constraintSize: Qt.size(width * 2, height * 2)
-                  visible: hasContent
-                  layer.enabled: true
-                  layer.smooth: true
-                }
-
-                Image {
-                  anchors.centerIn: parent
-                  visible: !view.hasContent
-                  width: Math.min(parent.width, parent.height) * 0.5
-                  height: width
-                  sourceSize: Qt.size(width * 2, height * 2)
-                  source: root.iconFor(tile.modelData.appId)
-                  smooth: true
-                  asynchronous: true
-                }
-              }
-
-              // Minimized windows: a small hollow badge, like the dock's dot.
-              Rectangle {
-                visible: tile.modelData.minimized
-                anchors { right: shot.right; bottom: shot.bottom; margins: 4 }
-                width: minLabel.implicitWidth + 12
-                height: 18
-                radius: 9
-                color: Qt.rgba(Commons.Color.menu.background.r, Commons.Color.menu.background.g, Commons.Color.menu.background.b, 0.85)
-                border.width: 1
-                border.color: Qt.rgba(Commons.Color.menu.text.r, Commons.Color.menu.text.g, Commons.Color.menu.text.b, 0.3)
-                Text {
-                  id: minLabel
-                  textFormat: Text.PlainText
-                  anchors.centerIn: parent
-                  text: Qt.locale().name.indexOf("pt") === 0 ? "minimizada" : "minimized"
-                  color: Commons.Color.menu.text
-                  opacity: 0.8
-                  font.pixelSize: 10
-                }
-              }
-
-              Row {
-                anchors { bottom: parent.bottom; bottomMargin: 8; horizontalCenter: parent.horizontalCenter }
-                width: Math.min(implicitWidth, parent.width - 16)
-                spacing: 6
-                Image {
-                  id: appIcon
-                  width: 18; height: 18
-                  anchors.verticalCenter: parent.verticalCenter
-                  sourceSize: Qt.size(36, 36)
-                  source: root.iconFor(tile.modelData.appId)
-                  smooth: true
-                  asynchronous: true
-                }
-                Text {
-                  textFormat: Text.PlainText
-                  anchors.verticalCenter: parent.verticalCenter
-                  width: Math.min(implicitWidth, tile.width - 16 - appIcon.width - 6)
-                  text: tile.title || tile.modelData.appId
-                  color: Commons.Color.menu.text
-                  font.pixelSize: 12
-                  font.bold: tile.selected
-                  elide: Text.ElideRight
-                }
-              }
-
-              MouseArea {
-                id: tileMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                onClicked: root.pick(tile.index)
-              }
             }
           }
         }

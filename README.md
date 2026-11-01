@@ -18,8 +18,9 @@ Live window thumbnails on a glass panel, instant on a quick tap.
   once you keep holding Alt.
 - 🖼️ **Live thumbnails** of every window, captured only while the panel is up:
   nothing is recorded in the background.
-- 🕐 **Most recently used order**, like Windows and macOS: the window you came from
-  first, then this monitor's windows, then the rest.
+- 🕘 **Most recently used first**, like Windows, across every workspace: each
+  Tab goes one window further back, and every tile says which workspace it is
+  on. A quick Alt+Tab goes straight to the window you came from.
 - ➖ **Minimized windows included.** Pick one and it comes back to the workspace
   you are on, tagged *minimized* in the panel.
 - ⌨️ **Every key you expect**: Tab / Shift+Tab, ← →, Enter to pick, Esc to cancel,
